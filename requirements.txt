@@ -1,0 +1,3 @@
+requests
+pillow
+# 其他需要的包
