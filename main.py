@@ -1,44 +1,56 @@
 import llm_interface
 import comfyui_api
 import image_processor
-import config
+from config import Config, config
+import logging
+import gradio as gr
+
+# 设置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def main():
     # 列出可用的工作流
-    workflows = comfyui_api.list_workflows()
-    print("可用的工作流:")
-    for i, workflow in enumerate(workflows):
-        print(f"{i+1}. {workflow}")
+    workflows = comfyui_api.list_workflows(config.WORKFLOWS_DIR)
+    logging.info(f"找到 {len(workflows)} 个可用工作流")
 
-    # 让用户选择工作流
-    while True:
+    def generate_image(workflow_index, description):
         try:
-            choice = int(input("请选择工作流 (输入数字): ")) - 1
-            if 0 <= choice < len(workflows):
-                selected_workflow = workflows[choice]
-                break
-            else:
-                print("无效的选择，请重试。")
-        except ValueError:
-            print("请输入有效的数字。")
+            selected_workflow = workflows[workflow_index]
+            logging.info(f"选择的工作流: {selected_workflow}")
 
-    # 获取用户输入的简洁描述词
-    description = input("请输入图像描述: ")
+            # 调用LLM生成完善的提示词
+            interface = llm_interface.create_interface()
+            
+            def process_prompt(prompt):
+                logging.info(f"生成的提示词: {prompt[:50]}...")
+                
+                # 调用ComfyUI API生成图像
+                image_filename = comfyui_api.generate_image(prompt, selected_workflow)
 
-    # 调用LLM生成完善的提示词
-    prompt = llm_interface.generate_prompt(description)
+                if image_filename:
+                    logging.info(f"图像已生成: {image_filename}")
+                    return f"图像已生成: {image_filename}"
+                else:
+                    logging.error("图像生成失败")
+                    return "图像生成失败"
 
-    # 调用ComfyUI API生成图像
-    image_filename = comfyui_api.generate_image(prompt, selected_workflow)
+            interface.load(fn=process_prompt, inputs=interface.outputs, outputs=gr.Textbox())
+            interface.launch(share=True)
 
-    if image_filename:
-        print(f"图像已生成: {image_filename}")
-    else:
-        print("图像生成失败")
+        except Exception as e:
+            logging.error(f"发生错误: {e}")
+            return f"发生错误: {e}"
 
-    # 处理和保存图像
-    # 注意：在这个实现中，ComfyUI已经保存了图像，所以这一步可能不需要
-    # 但你可能想要进行额外的处理或移动文件到特定位置
+    with gr.Blocks() as app:
+        gr.Markdown("# 图像生成器")
+        workflow_dropdown = gr.Dropdown(choices=workflows, label="选择工作流")
+        description_input = gr.Textbox(label="请输入图像描述", lines=3)
+        generate_button = gr.Button("生成图像")
+        output = gr.Textbox(label="结果")
+
+        generate_button.click(generate_image, inputs=[workflow_dropdown, description_input], outputs=output)
+
+    app.launch(share=True)
 
 if __name__ == "__main__":
     main()
