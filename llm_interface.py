@@ -1,8 +1,8 @@
 import gradio as gr
-import openai
+from openai import OpenAI
 import requests
 import logging
-from config import Config, config
+from config import config
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -10,28 +10,42 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # 预定义的参数模板
 PARAMETER_TEMPLATES = {
     "视角": ["ultra wide angle", "close-up", "aerial view", "isometric"],
-    "风格": ["photorealistic", "cinematic", "anime style", "oil painting"],
+    "风格": ["photorealistic", "cinematic", "anime style", "oil painting", "comic"],
     "光照": ["soft lighting", "dramatic lighting", "golden hour", "neon lights"],
     "色彩": ["vibrant colors", "muted tones", "monochromatic", "pastel colors"],
     "细节": ["highly detailed", "minimalist", "intricate", "abstract"],
 }
 
 def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *args):
+    user_params = {}
+    for i, (category, options) in enumerate(PARAMETER_TEMPLATES.items()):
+        for j, option in enumerate(options):
+            checkbox_value = args[i * 8 + j * 2]
+            slider_value = args[i * 8 + j * 2 + 1]
+            if checkbox_value:
+                user_params[option] = slider_value
+
+    prompt = f"基于以下描述和参数生成一个详细的图像提示词，参考Midjourney的风格：\n\n原始描述：{description}\n\n"
+    for param, weight in user_params.items():
+        prompt += f"参数：{param}，权重：{weight:.1f}\n"
+    
+    prompt += "\n请生成一个综合考虑原始描述和给定参数的详细提示词，确保权重较高的参数在最终提示词中得到更多体现。"
+    prompt += "\n请翻译为英文输出。"
+
     if llm_type == 'openai':
-        openai.api_key = api_key
-        openai.api_base = llm_endpoint
+        client = OpenAI(api_key=api_key, base_url=llm_endpoint)
         
         try:
-            response = openai.ChatCompletion.create(
+            response = client.chat.completions.create(
                 model=llm_model,
                 messages=[
                     {"role": "system", "content": "你是一个专业的图像提示词生成助手，擅长创建详细、富有创意的图像描述。"},
                     {"role": "user", "content": prompt}
                 ]
             )
-            generated_prompt = response.choices[0].message['content'].strip()
+            generated_prompt = response.choices[0].message.content.strip()
         except Exception as e:
-            logging.error(f"OpenAI API 调用错误：{e}")
+            logging.error(f"API 调用错误：{e}")
             return f"生成提示词时发生错误：{e}\n\n原始描述：{description}"
     
     elif llm_type == 'ollama':
@@ -89,6 +103,15 @@ def create_interface():
         llm_type.change(save_llm_config, inputs=[llm_type, llm_endpoint, llm_model])
         llm_endpoint.change(save_llm_config, inputs=[llm_type, llm_endpoint, llm_model])
         llm_model.change(save_llm_config, inputs=[llm_type, llm_endpoint, llm_model])
+
+        def update_endpoint(llm_type):
+            if llm_type == 'openai':
+                return config.LLM_ENDPOINT
+            elif llm_type == 'ollama':
+                return "http://localhost:11434"
+            return ""
+
+        llm_type.change(update_endpoint, inputs=[llm_type], outputs=[llm_endpoint])
 
         generate_button.click(
             generate_prompt,
