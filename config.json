@@ -1,0 +1,8 @@
+{
+    "OPENAI_API_KEY": "sk-vzlS28o63H7Nlzf77e0d366a330148Ec996b6f70F2196f1d",
+    "LLM_ENDPOINT": "https://tbnx.plus7.plus",
+    "LLM_TYPE": "openai",
+    "LLM_MODEL": "gpt-3.5-turbo",
+    "COMFYUI_API_URL": "http://127.0.0.1:8188",
+    "WORKFLOWS_DIR": "workflows"
+}
