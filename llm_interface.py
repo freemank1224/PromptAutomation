@@ -3,6 +3,11 @@ from openai import OpenAI
 import requests
 import logging
 from config import config
+from pydantic import BaseModel
+from typing import Any
+
+class Config:
+    arbitrary_types_allowed = True
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,15 +27,13 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
         for j, option in enumerate(options):
             checkbox_value = args[i * 8 + j * 2]
             slider_value = args[i * 8 + j * 2 + 1]
-            if checkbox_value:
-                user_params[option] = slider_value
+            if checkbox_value and slider_value > 0:
+                user_params[option] = int(slider_value)  # 确保权重为整数
 
-    prompt = f"基于以下描述和参数生成一个详细的图像提示词，参考Midjourney的风格：\n\n原始描述：{description}\n\n"
-    for param, weight in user_params.items():
-        prompt += f"参数：{param}，权重：{weight:.1f}\n"
-    
-    prompt += "\n请生成一个综合考虑原始描述和给定参数的详细提示词，确保权重较高的参数在最终提示词中得到更多体现。"
-    prompt += "\n请翻译为英文输出。"
+    prompt = f"基于以下描述生成一个详细的图像提示词，参考Midjourney的风格：\n\n原始描述：{description}\n\n"
+    prompt += "如果用户的描述只是简单的几个关键词，请加入合理想象，利用给定关键词生成一个完整的场景描述。"
+    prompt += "请生成详细的提示词，不要包含任何额外的参数或权重信息。"
+    prompt += "\n请翻译为英文，并且仅输出英文提示词。"
 
     if llm_type == 'openai':
         client = OpenAI(api_key=api_key, base_url=llm_endpoint)
@@ -67,57 +70,61 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
     else:
         return f"不支持的 LLM 类型：{llm_type}"
 
+    # 在生成的提示词后面添加参数和权重，只包含权重不为 0 的参数
+    for param, weight in user_params.items():
+        param_formatted = param.lower().replace(" ", "_")
+        generated_prompt += f" {param_formatted}::{weight}"
+
     logging.info(f"成功生成提示词: {generated_prompt[:50]}...")
     return generated_prompt
 
 def create_interface():
     with gr.Blocks() as interface:
         gr.Markdown("# 提示词生成器")
-        api_key_input = gr.Textbox(label="API 密钥", type="password", value=config.OPENAI_API_KEY)
-        save_api_key = gr.Checkbox(label="保存 API 密钥")
-        
-        llm_type = gr.Dropdown(["openai", "ollama"], label="LLM 类型", value=config.LLM_TYPE)
-        llm_endpoint = gr.Textbox(label="LLM Endpoint", value=config.LLM_ENDPOINT)
-        llm_model = gr.Textbox(label="LLM 模型", value=config.LLM_MODEL)
         
         with gr.Row():
-            description_input = gr.Textbox(label="请输入图像描述", lines=3)
-        
-        parameter_inputs = []
-        for category, options in PARAMETER_TEMPLATES.items():
-            with gr.Row():
-                gr.Markdown(f"## {category}")
-            for option in options:
+            # 左侧栏
+            with gr.Column(scale=1):
+                api_key_input = gr.Textbox(label="API 密钥", type="password", value=config.OPENAI_API_KEY)
+                save_api_key = gr.Checkbox(label="保存 API 密钥")
+                
+                llm_type = gr.Dropdown(["openai", "ollama"], label="LLM 类型", value=config.LLM_TYPE)
+                llm_endpoint = gr.Textbox(label="LLM Endpoint", value=config.LLM_ENDPOINT)
+                llm_model = gr.Dropdown(
+                    ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4o-mini"],
+                    label="LLM 模型",
+                    value=config.LLM_MODEL if config.LLM_MODEL in ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4o-mini"] else "gpt-3.5-turbo"
+                )
+                
+                description_input = gr.Textbox(label="请输入图像描述", lines=5)
+                generate_button = gr.Button("生成提示词", variant="primary")
+            
+            # 右侧栏（用于显示生成的提示词）
+            with gr.Column(scale=1):
                 with gr.Row():
-                    checkbox = gr.Checkbox(label=option)
-                    slider = gr.Slider(minimum=0.1, maximum=1.0, value=0.5, label="权重")
-                    parameter_inputs.extend([checkbox, slider])
-
-        generate_button = gr.Button("生成提示词")
-        output = gr.Textbox(label="生成的提示词", lines=5)
-
-        def save_llm_config(llm_type, endpoint, model):
-            config.set_llm_config(llm_type, endpoint, model)
-            logging.info("LLM 配置已保存")
-
-        llm_type.change(save_llm_config, inputs=[llm_type, llm_endpoint, llm_model])
-        llm_endpoint.change(save_llm_config, inputs=[llm_type, llm_endpoint, llm_model])
-        llm_model.change(save_llm_config, inputs=[llm_type, llm_endpoint, llm_model])
-
-        def update_endpoint(llm_type):
-            if llm_type == 'openai':
-                return config.LLM_ENDPOINT
-            elif llm_type == 'ollama':
-                return "http://localhost:11434"
-            return ""
-
-        llm_type.change(update_endpoint, inputs=[llm_type], outputs=[llm_endpoint])
+                    output = gr.Textbox(label="生成的提示词", lines=20)
+        
+        # 下方参数选择区域（分为三列）
+        with gr.Row():
+            parameter_inputs = []
+            for i, (category, options) in enumerate(PARAMETER_TEMPLATES.items()):
+                with gr.Column(scale=1):
+                    gr.Markdown(f"## {category}")
+                    for option in options:
+                        with gr.Row():
+                            checkbox = gr.Checkbox(label=option)
+                            slider = gr.Slider(minimum=0, maximum=10, step=1, value=0, label="权重")
+                            parameter_inputs.extend([checkbox, slider])
+                if (i + 1) % 3 == 0 and i < len(PARAMETER_TEMPLATES) - 1:
+                    with gr.Row():
+                        pass  # 创建新的行
 
         generate_button.click(
             generate_prompt,
             inputs=[api_key_input, description_input, llm_type, llm_endpoint, llm_model] + parameter_inputs,
             outputs=output
         )
+
 
     return interface
 

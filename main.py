@@ -5,6 +5,11 @@ from config import Config, config
 import logging
 import gradio as gr
 
+from pydantic import BaseModel
+
+class Config:
+    arbitrary_types_allowed = True
+
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
