@@ -71,7 +71,7 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
     # 在生成的提示词后面添加参数和权重，只包含权重不为 0 的参数
     for param, weight in user_params.items():
         param_formatted = param.lower().replace(" ", "_")
-        generated_prompt += f" {param_formatted}::{weight}"
+        generated_prompt += f" {param_formatted}::{weight}，"
 
     logging.info(f"成功生成提示词: {generated_prompt[:50]}...")
     return generated_prompt
