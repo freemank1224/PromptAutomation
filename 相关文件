@@ -1,9 +1,0 @@
-from pydantic import BaseModel
-from typing import Any
-
-class YourModel(BaseModel):
-    # 您的字段定义
-    request: Any
-    
-    class Config:
-        arbitrary_types_allowed = True

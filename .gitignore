@@ -1,0 +1,35 @@
+# 忽略输出目录中的所有文件
+output/
+
+# 忽略常见的图片文件格式
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.webp
+
+# 忽略Python相关文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 忽略虚拟环境
+venv/
+env/
+.env
+
+# 忽略IDE相关文件
+.vscode/
+.idea/
+
+# 忽略日志文件
+*.log
+
+# 忽略配置文件（如果您不想将其包含在版本控制中）
+# config.json
+
+# 忽略系统文件
+.DS_Store
+Thumbs.db
