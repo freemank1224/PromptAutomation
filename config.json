@@ -2,7 +2,7 @@
     "OPENAI_API_KEY": "your_openai_api_key_here",
     "COMFYUI_API_URL": "127.0.0.1:8188",
     "WORKFLOWS_DIR": "workflows",
-    "OUTPUT_DIR": "outputs",
+    "OUTPUT_DIR": "output",
     "LLM_TYPE": "openai",
     "OPENAI_ENDPOINT": "https://tbnx.plus7.plus/v1",
     "OPENAI_MODEL": "gpt-3.5-turbo",
