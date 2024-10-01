@@ -14,7 +14,8 @@ For native Chinese speakers who are not professional AI image designers, writing
 
 ## Requirements
 - Python 3.10 test passed
-- ComfyUI 
-
+- ComfyUI deployed on local computer or LAN
+- API key for OpenAI models
+- Ollama deployed on local computer or LAN for Ollama models
 ----
 对于汉语为母语的非专业AI图片设计师，提示词的撰写是非常具有挑战性的一项工作。不仅需要对ComfyUI的工作特点有较多了解，还要有专业且丰富的英语表达能力，因为提示词的撰写，极大的影响着生成图片的质量和内容丰富性。尤其是对于希望批量生产大量不同主题图片的用户，逐一撰写详细的提示词，是非常困难的工作。因此，我设计了一个能够根据简单关键词，调用LLM来生成丰富提示词的一个工具，且能够自动传递提示词到ComfyUI工作流，实现自动出图。
