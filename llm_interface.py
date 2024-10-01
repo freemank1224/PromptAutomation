@@ -20,6 +20,11 @@ PARAMETER_TEMPLATES = {
 }
 
 def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *args):
+    logging.info(f"LLM Type: {llm_type}")
+    logging.info(f"LLM Endpoint: {llm_endpoint}")
+    logging.info(f"LLM Model: {llm_model}")
+    logging.info(f"===============")
+
     user_params = {}
     for i, options in enumerate(PARAMETER_TEMPLATES.values()):
         for j, option in enumerate(options):
@@ -34,6 +39,7 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
     prompt += "\n请翻译为英文，并且仅输出英文提示词。"
 
     if llm_type == 'openai':
+        llm_endpoint = config.OPENAI_ENDPOINT
         client = OpenAI(api_key=api_key, base_url=llm_endpoint)
         
         try:
@@ -50,17 +56,21 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
             return f"生成提示词时发生错误：{e}\n\n原始描述：{description}"
     
     elif llm_type == 'ollama':
+        llm_endpoint = config.OLLAMA_ENDPOINT
+        client = OpenAI(api_key='ollama', base_url=llm_endpoint)
         try:
-            response = requests.post(
-                f"{llm_endpoint}/api/generate",
-                json={
-                    "model": llm_model,
-                    "prompt": prompt,
-                    "system": "你是一个专业的图像提示词生成助手，擅长创建详细、富有创意的图像描述。"
-                }
+            full_url = llm_endpoint
+            logging.info(f"Calling Ollama API at: {full_url}")
+            response = client.chat.completions.create(
+                model="llama3.1",
+                messages=[
+                    {"role": "system", "content": "你是一个专业的图像提示词生成助手，擅长创建详细、富有创意的图像描述。"},
+                    {"role": "user", "content": prompt}
+                ]
             )
-            response.raise_for_status()
-            generated_prompt = response.json()['response'].strip()
+            generated_prompt = response.choices[0].message.content.strip()
+            logging.info(f"Ollama API 调用成功：{generated_prompt}")
+
         except Exception as e:
             logging.error(f"Ollama API 调用错误：{e}")
             return f"生成提示词时发生错误：{e}\n\n原始描述：{description}"
@@ -106,13 +116,21 @@ def create_interface():
                 save_api_key = gr.Checkbox(label="保存 API 密钥")
                 
                 llm_type = gr.Dropdown(["openai", "ollama"], label="LLM 类型", value=config.LLM_TYPE)
-                llm_endpoint = gr.Textbox(label="LLM Endpoint", value=config.LLM_ENDPOINT)
-                llm_model = gr.Dropdown(
-                    ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4o-mini"],
-                    label="LLM 模型",
-                    value=config.LLM_MODEL if config.LLM_MODEL in ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4o-mini"] else "gpt-3.5-turbo"
-                )
                 
+                # OpenAI 设置
+                with gr.Group(visible=config.LLM_TYPE == "openai") as openai_group:
+                    openai_endpoint = gr.Textbox(label="OpenAI Endpoint", value=config.OPENAI_ENDPOINT, type="text")
+                    openai_model = gr.Dropdown(
+                        ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4o-mini"],
+                        label="OpenAI 模型",
+                        value=config.OPENAI_MODEL
+                    )
+                
+                # Ollama 设置
+                with gr.Group(visible=config.LLM_TYPE == "ollama") as ollama_group:
+                    ollama_endpoint = gr.Textbox(label="Ollama Endpoint", value=config.OLLAMA_ENDPOINT, type="text")
+                    print(ollama_endpoint.value)
+                    
                 description_input = gr.Textbox(label="请输入图像描述", lines=5)
                 generate_button = gr.Button("生成提示词", variant="primary")
 
@@ -120,7 +138,6 @@ def create_interface():
                     workflows = comfyui_api.list_workflows()
                     workflow_dropdown = gr.Dropdown(choices=workflows, label="选择工作流")
                     generate_image_button = gr.Button("生成图像")
-                
             
             # 右侧栏（用于显示生成的提示词和图像）
             with gr.Column(scale=1):
@@ -130,7 +147,6 @@ def create_interface():
                 with gr.Row():
                     output_image = gr.Image(label="生成的图像", type="pil")
 
-        
         # 下方参数选择区域（分为三列）
         with gr.Row():
             parameter_inputs = []
@@ -146,9 +162,40 @@ def create_interface():
                     with gr.Row():
                         pass  # 创建新的行
 
+        # 更新 LLM 设置，根据选择的 LLM 类型显示或隐藏相应的设置
+        def update_llm_settings(llm_type):
+            print("\n========================")
+            logging.info(f"Updating LLM settings for: {llm_type}")
+            print("\n========================")
+
+            return {
+                openai_group: gr.update(visible=llm_type == "openai"),
+                ollama_group: gr.update(visible=llm_type == "ollama")
+            }
+
+        # 当 LLM 类型改变时，更新 LLM 设置
+        llm_type.change(
+            update_llm_settings,
+            inputs=[llm_type],
+            outputs=[openai_group, ollama_group]
+        )
+
+        def get_endpoint(llm_type, openai_endpoint, ollama_endpoint):
+            logging.info(f"Getting endpoint for LLM type: {llm_type}")
+            logging.info(f"OpenAI endpoint: {openai_endpoint}")
+            logging.info(f"Ollama endpoint: {ollama_endpoint}")
+            return openai_endpoint if llm_type == "openai" else ollama_endpoint
+        
+        def get_model(llm_type, openai_model):
+            return openai_model if llm_type == "openai" else "llama2"  # 为 Ollama 返回默认模型
+
         generate_button.click(
             generate_prompt,
-            inputs=[api_key_input, description_input, llm_type, llm_endpoint, llm_model] + parameter_inputs,
+            inputs=[
+                api_key_input, description_input, llm_type,
+                gr.Textbox(value=lambda: get_endpoint(llm_type.value, openai_endpoint.value, ollama_endpoint.value)),
+                gr.Textbox(value=lambda: get_model(llm_type.value, openai_model.value))
+            ] + parameter_inputs,
             outputs=output
         )
 

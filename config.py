@@ -19,8 +19,9 @@ class Config:
             'WORKFLOWS_DIR': 'workflows',
             'OUTPUT_DIR': 'output',
             'LLM_TYPE': 'openai',
-            'LLM_ENDPOINT': 'https://api.openai.com/v1',
-            'LLM_MODEL': 'gpt-3.5-turbo'
+            'OPENAI_ENDPOINT': 'https://tbnx.plus7.plus/v1',
+            'OPENAI_MODEL': 'gpt-3.5-turbo',
+            'OLLAMA_ENDPOINT': 'http://localhost:11434'
         }
 
         # 首先尝试从环境变量加载
@@ -50,8 +51,9 @@ class Config:
             'WORKFLOWS_DIR': self.WORKFLOWS_DIR,
             'OUTPUT_DIR': self.OUTPUT_DIR,
             'LLM_TYPE': self.LLM_TYPE,
-            'LLM_ENDPOINT': self.LLM_ENDPOINT,
-            'LLM_MODEL': self.LLM_MODEL
+            'OPENAI_ENDPOINT': self.OPENAI_ENDPOINT,
+            'OPENAI_MODEL': self.OPENAI_MODEL,
+            'OLLAMA_ENDPOINT': self.OLLAMA_ENDPOINT
         }
         with open(self._config_file, 'w') as f:
             json.dump(config_data, f, indent=4)

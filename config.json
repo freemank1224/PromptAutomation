@@ -1,9 +1,10 @@
 {
-    "OPENAI_API_KEY": "sk-vzlS28o63H7Nlzf77e0d366a330148Ec996b6f70F2196f1d",
+    "OPENAI_API_KEY": "your_openai_api_key_here",
     "COMFYUI_API_URL": "127.0.0.1:8188",
     "WORKFLOWS_DIR": "workflows",
-    "OUTPUT_DIR": "output",
+    "OUTPUT_DIR": "outputs",
     "LLM_TYPE": "openai",
-    "LLM_ENDPOINT": "https://tbnx.plus7.plus/v1",
-    "LLM_MODEL": "gpt-3.5-turbo"
+    "OPENAI_ENDPOINT": "https://tbnx.plus7.plus/v1",
+    "OPENAI_MODEL": "gpt-3.5-turbo",
+    "OLLAMA_ENDPOINT": "http://localhost:11434/v1"
 }
