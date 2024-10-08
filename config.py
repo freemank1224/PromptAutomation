@@ -21,6 +21,7 @@ class Config:
             'LLM_TYPE': 'openai',
             'OPENAI_ENDPOINT': 'https://tbnx.plus7.plus/v1',
             'OPENAI_MODEL': 'gpt-3.5-turbo',
+            'OLLAMA_MODEL': 'llama3.1',
             'OLLAMA_ENDPOINT': 'http://localhost:11434'
         }
 
@@ -53,6 +54,7 @@ class Config:
             'LLM_TYPE': self.LLM_TYPE,
             'OPENAI_ENDPOINT': self.OPENAI_ENDPOINT,
             'OPENAI_MODEL': self.OPENAI_MODEL,
+            'OLLAMA_MODEL': self.OLLAMA_MODEL,
             'OLLAMA_ENDPOINT': self.OLLAMA_ENDPOINT
         }
         with open(self._config_file, 'w') as f:

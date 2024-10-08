@@ -43,7 +43,7 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
     prompt += "\n请翻译为英文，并且仅输出英文提示词。"
 
     if llm_type == 'openai':
-        llm_endpoint = config.OPENAI_ENDPOINT
+        # llm_endpoint = config.OPENAI_ENDPOINT
         client = OpenAI(api_key=api_key, base_url=llm_endpoint)
         
         try:
@@ -60,12 +60,13 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
             return f"生成提示词时发生错误：{e}\n\n原始描述：{description}"
     
     elif llm_type == 'ollama':
-        llm_endpoint = config.OLLAMA_ENDPOINT
+        # llm_endpoint = config.OLLAMA_ENDPOINT
         client = OpenAI(api_key='ollama', base_url=llm_endpoint)
         try:
             full_url = llm_endpoint
             logging.info(f"Calling Ollama API at: {full_url}")
             response = client.chat.completions.create(
+                # 这里后面需要改一下，用变量来判断
                 model="llama3.1",
                 messages=[
                     {"role": "system", "content": "你是一个专业的图像提示词生成助手，擅长创建详细、富有创意的图像描述。"},
@@ -186,18 +187,30 @@ def create_interface():
                 
                 # OpenAI 设置
                 with gr.Group(visible=config.LLM_TYPE == "openai") as openai_group:
-                    openai_endpoint = gr.Textbox(label="OpenAI Endpoint", value=config.OPENAI_ENDPOINT, type="text")
+                    openai_endpoint = gr.Textbox(
+                        label="OpenAI Endpoint", 
+                        value=config.OPENAI_ENDPOINT, 
+                        type="text",
+                        placeholder="输入自定义endpoint或保留默认值",
+                        interactive=True
+                    )
                     openai_model = gr.Dropdown(
-                        ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4o-mini"],
+                        choices=["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4o-mini"],
                         label="OpenAI 模型",
-                        value=config.OPENAI_MODEL
+                        value=config.OPENAI_MODEL,
+                        interactive=True
                     )
                 
                 # Ollama 设置
                 with gr.Group(visible=config.LLM_TYPE == "ollama") as ollama_group:
-                    ollama_endpoint = gr.Textbox(label="Ollama Endpoint", value=config.OLLAMA_ENDPOINT, type="text")
-                    print(ollama_endpoint.value)
-                    
+                    ollama_endpoint = gr.Textbox(label="Ollama Endpoint", value=config.OLLAMA_ENDPOINT, type="text", interactive=True)
+                    ollama_model = gr.Dropdown(
+                        choices=["llama3.1", "llama3"], 
+                        label="Ollama 模型", 
+                        value=config.OLLAMA_MODEL,
+                        interactive=True
+                    )
+                
                 description_input = gr.Textbox(label="请输入图像描述", lines=5)
                 generate_button = gr.Button("生成提示词", variant="primary")
 
@@ -240,6 +253,17 @@ def create_interface():
                     with gr.Row():
                         pass  # 创建新的行
 
+
+        # 更新LLM模型设置
+        def update_llm_model(llm_type):
+            print("\n==== Current LLM model =====")
+            if llm_type == "openai":
+                return openai_model
+            if llm_type == "ollama":
+                return ollama_model
+            logging.info(f"Updating LLM model for: {llm_type}")
+            print("\n========================")
+
         # 更新 LLM 设置，根据选择的 LLM 类型显示或隐藏相应的设置
         def update_llm_settings(llm_type):
             print("\n========================")
@@ -259,10 +283,17 @@ def create_interface():
         )
 
         def get_endpoint(llm_type, openai_endpoint, ollama_endpoint):
-            logging.info(f"Getting endpoint for LLM type: {llm_type}")
-            logging.info(f"OpenAI endpoint: {openai_endpoint}")
-            logging.info(f"Ollama endpoint: {ollama_endpoint}")
-            return openai_endpoint if llm_type == "openai" else ollama_endpoint
+            # logging.info(f"Getting endpoint for LLM type: {llm_type}")
+            # logging.info(f"OpenAI endpoint: {openai_endpoint}")
+            # logging.info(f"Ollama endpoint: {ollama_endpoint}")
+            if llm_type == "openai":
+                logging.info(f"OpenAI endpoint was selected: {openai_endpoint}")
+                return openai_endpoint
+                
+            if llm_type == "ollama": 
+                logging.info(f"Ollama endpoint was selected: {ollama_endpoint}")
+                return ollama_endpoint
+                
         
         def get_model(llm_type, openai_model):
             return openai_model if llm_type == "openai" else "llama2"  # 为 Ollama 返回默认模型
