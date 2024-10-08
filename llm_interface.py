@@ -10,6 +10,7 @@ import pandas as pd
 import openpyxl
 from openpyxl.drawing.image import Image as XLImage
 from io import BytesIO
+from tqdm import tqdm
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -112,6 +113,7 @@ def generate_image(prompt, workflow_name):
 
 def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflow_name, progress=gr.Progress(), *args):
     try:
+        logging.info(f"Processing Excel file: {file_path}")
         df = pd.read_excel(file_path)
         keyword_column = next((col for col in df.columns if col.lower() in ['关键词', 'keywords']), None)
         
@@ -127,8 +129,7 @@ def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflo
         total_rows = len(df[keyword_column])
         
         progress(0, desc="开始处理Excel文件")
-        for index, keyword in enumerate(df[keyword_column]):
-            progress((index + 1) / total_rows, desc=f"正在处理第 {index+1}/{total_rows} 个任务")
+        for index, keyword in enumerate(progress.tqdm(df[keyword_column], desc="处理Excel文件")):
             prompt = generate_prompt(api_key, keyword, llm_type, llm_endpoint, llm_model, *args)
             image = generate_image(prompt, workflow_name)
             if image:
@@ -138,6 +139,8 @@ def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflo
                 results.append((keyword, prompt, image_path))
             else:
                 results.append((keyword, prompt, "图像生成失败"))
+            
+            progress((index + 1) / total_rows, desc=f"处理进度: {index+1}/{total_rows}")
         
         progress(1.0, desc="处理完成")
         return pd.DataFrame(results, columns=["关键词", "生成的提示词", "图片路径"]), "全部内容已生成"
@@ -183,26 +186,30 @@ def create_interface():
                 api_key_input = gr.Textbox(label="API 密钥", type="password", value=config.OPENAI_API_KEY)
                 save_api_key = gr.Checkbox(label="保存 API 密钥")
                 
-                llm_type = gr.Dropdown(["openai", "ollama"], label="LLM 类型", value=config.LLM_TYPE)
+                llm_type = gr.Dropdown(choices=["openai", "ollama"], label="LLM 类型", value=config.LLM_TYPE)
+                logging.info(f"LLM Type: {llm_type.value}")
+                logging.info('----------------')
                 
                 # OpenAI 设置
-                with gr.Group(visible=config.LLM_TYPE == "openai") as openai_group:
+                with gr.Group(visible=llm_type.value == "openai") as openai_group:
                     openai_endpoint = gr.Textbox(
                         label="OpenAI Endpoint", 
-                        value=config.OPENAI_ENDPOINT, 
+                        value=config.OPENAI_ENDPOINT,
                         type="text",
                         placeholder="输入自定义endpoint或保留默认值",
                         interactive=True
-                    )
+                    )                   
                     openai_model = gr.Dropdown(
                         choices=["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4o-mini"],
                         label="OpenAI 模型",
                         value=config.OPENAI_MODEL,
                         interactive=True
                     )
+                    logging.info(f"OpenAI Endpoint: {openai_endpoint.value}")
+                    logging.info(f"OpenAI Model: {openai_model.value}")
                 
                 # Ollama 设置
-                with gr.Group(visible=config.LLM_TYPE == "ollama") as ollama_group:
+                with gr.Group(visible=llm_type.value == "ollama") as ollama_group:
                     ollama_endpoint = gr.Textbox(label="Ollama Endpoint", value=config.OLLAMA_ENDPOINT, type="text", interactive=True)
                     ollama_model = gr.Dropdown(
                         choices=["llama3.1", "llama3"], 
@@ -210,6 +217,9 @@ def create_interface():
                         value=config.OLLAMA_MODEL,
                         interactive=True
                     )
+                    logging.info(f"Ollama Endpoint: {ollama_endpoint.value}")
+                    logging.info(f"Ollama Model: {ollama_model.value}")
+
                 
                 description_input = gr.Textbox(label="请输入图像描述", lines=5)
                 generate_button = gr.Button("生成提示词", variant="primary")
@@ -255,14 +265,20 @@ def create_interface():
 
 
         # 更新LLM模型设置
-        def update_llm_model(llm_type):
+        def update_llm_parameters(llm_type):
             print("\n==== Current LLM model =====")
             if llm_type == "openai":
-                return openai_model
+                llm_model = openai_model
+                llm_endpoint = openai_endpoint
+            
             if llm_type == "ollama":
-                return ollama_model
-            logging.info(f"Updating LLM model for: {llm_type}")
-            print("\n========================")
+                llm_model = ollama_model
+                llm_endpoint = ollama_endpoint
+            
+            print("========================")
+            return llm_model, llm_endpoint
+            
+            
 
         # 更新 LLM 设置，根据选择的 LLM 类型显示或隐藏相应的设置
         def update_llm_settings(llm_type):
@@ -270,16 +286,23 @@ def create_interface():
             logging.info(f"Updating LLM settings for: {llm_type}")
             print("\n========================")
 
+            is_openai = llm_type == "openai"
+            is_ollama = llm_type == "ollama"
+
             return {
-                openai_group: gr.update(visible=llm_type == "openai"),
-                ollama_group: gr.update(visible=llm_type == "ollama")
+                openai_group: gr.update(visible=is_openai),
+                ollama_group: gr.update(visible=is_ollama),
+                openai_endpoint: gr.update(visible=is_openai),
+                openai_model: gr.update(visible=is_openai),
+                ollama_endpoint: gr.update(visible=is_ollama),
+                ollama_model: gr.update(visible=is_ollama)
             }
 
         # 当 LLM 类型改变时，更新 LLM 设置
         llm_type.change(
             update_llm_settings,
             inputs=[llm_type],
-            outputs=[openai_group, ollama_group]
+            outputs=[openai_group, ollama_group, openai_endpoint, openai_model, ollama_endpoint, ollama_model]
         )
 
         def get_endpoint(llm_type, openai_endpoint, ollama_endpoint):
@@ -307,12 +330,52 @@ def create_interface():
             else:
                 return "导出失败"
 
+        def get_current_llm_params(llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model):
+            if llm_type == "openai":
+                return openai_endpoint, openai_model
+            elif llm_type == "ollama":
+                return ollama_endpoint, ollama_model
+            else:
+                raise ValueError(f"Unsupported LLM type: {llm_type}")
+
+        def generate_prompt_wrapper(api_key, description, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, *args):
+            if llm_type == "openai":
+                endpoint, model = openai_endpoint, openai_model
+            elif llm_type == "ollama":
+                endpoint, model = ollama_endpoint, ollama_model
+            else:
+                raise ValueError(f"Unsupported LLM type: {llm_type}")
+            
+            return generate_prompt(api_key, description, llm_type, endpoint, model, *args)
+
+        def process_excel_wrapper(file_path, api_key, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, workflow_name, progress=gr.Progress(), *args):
+            logging.info(f"Starting process_excel_wrapper with llm_type: {llm_type}")
+            if llm_type == "openai":
+                endpoint, model = openai_endpoint, openai_model
+            elif llm_type == "ollama":
+                endpoint, model = ollama_endpoint, ollama_model
+            else:
+                raise ValueError(f"Unsupported LLM type: {llm_type}")
+            
+            logging.info(f"Calling process_excel with endpoint: {endpoint}, model: {model}")
+            try:
+                result = process_excel(file_path, api_key, llm_type, endpoint, model, workflow_name, progress, *args)
+                logging.info("process_excel completed successfully")
+                return result
+            except Exception as e:
+                logging.error(f"Error in process_excel: {str(e)}")
+                raise
+
         generate_button.click(
-            generate_prompt,
+            generate_prompt_wrapper,
             inputs=[
-                api_key_input, description_input, llm_type,
-                gr.Textbox(value=lambda: get_endpoint(llm_type.value, openai_endpoint.value, ollama_endpoint.value)),
-                gr.Textbox(value=lambda: get_model(llm_type.value, openai_model.value))
+                api_key_input, 
+                description_input, 
+                llm_type,
+                openai_endpoint,
+                openai_model,
+                ollama_endpoint,
+                ollama_model
             ] + parameter_inputs,
             outputs=output
         )
@@ -324,11 +387,15 @@ def create_interface():
         )
 
         process_excel_button.click(
-            process_excel,
+            process_excel_wrapper,
             inputs=[
-                excel_file, api_key_input, llm_type,
-                gr.Textbox(value=lambda: get_endpoint(llm_type.value, openai_endpoint.value, ollama_endpoint.value)),
-                gr.Textbox(value=lambda: get_model(llm_type.value, openai_model.value)),
+                excel_file, 
+                api_key_input, 
+                llm_type,
+                openai_endpoint,
+                openai_model,
+                ollama_endpoint,
+                ollama_model,
                 workflow_dropdown
             ] + parameter_inputs,
             outputs=[excel_output, process_status]
