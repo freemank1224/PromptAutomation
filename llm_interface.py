@@ -113,7 +113,7 @@ def generate_image(prompt, workflow_name):
 
 def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflow_name, progress=gr.Progress(), *args):
     try:
-        logging.info(f"Processing Excel file: {file_path}")
+        logging.info(f"处理Excel文件: {file_path}")
         df = pd.read_excel(file_path)
         keyword_column = next((col for col in df.columns if col.lower() in ['关键词', 'keywords']), None)
         
@@ -125,12 +125,20 @@ def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflo
         output_folder = os.path.join(config.OUTPUT_DIR, excel_name)
         os.makedirs(output_folder, exist_ok=True)
         
-        results = []
         total_rows = len(df[keyword_column])
         
-        progress(0, desc="开始处理Excel文件")
-        for index, keyword in enumerate(progress.tqdm(df[keyword_column], desc="处理Excel文件")):
+        # 第一阶段：批量生成提示词
+        progress(0, desc="开始生成提示词")
+        prompts = []
+        for index, keyword in enumerate(df[keyword_column]):
             prompt = generate_prompt(api_key, keyword, llm_type, llm_endpoint, llm_model, *args)
+            prompts.append(prompt)
+            progress((index + 1) / total_rows / 2, desc=f"生成提示词进度: {index+1}/{total_rows}")
+        
+        # 第二阶段：批量生成图片
+        progress(0.5, desc="开始生成图片")
+        results = []
+        for index, (keyword, prompt) in enumerate(zip(df[keyword_column], prompts)):
             image = generate_image(prompt, workflow_name)
             if image:
                 image_filename = f"{index+1:03d}_{keyword}.png"
@@ -139,8 +147,7 @@ def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflo
                 results.append((keyword, prompt, image_path))
             else:
                 results.append((keyword, prompt, "图像生成失败"))
-            
-            progress((index + 1) / total_rows, desc=f"处理进度: {index+1}/{total_rows}")
+            progress(0.5 + (index + 1) / total_rows / 2, desc=f"生成图片进度: {index+1}/{total_rows}")
         
         progress(1.0, desc="处理完成")
         return pd.DataFrame(results, columns=["关键词", "生成的提示词", "图片路径"]), "全部内容已生成"
