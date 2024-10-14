@@ -418,7 +418,7 @@ def create_interface():
 
 def launch_prompt_generator():
     interface = create_interface()
-    interface.launch(share=False)  # share=True 允许生成一个公共链接，方便远程访问
+    interface.launch(server_name="0.0.0.0", share=False)  # share=True 允许生成一个公共链接，方便远程访问
 
 # 添加这个部分用于测试和演示
 if __name__ == "__main__":
