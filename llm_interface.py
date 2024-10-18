@@ -19,16 +19,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 PARAMETER_TEMPLATES = {
     "视角": ["ultra wide angle", "close-up", "aerial view", "isometric"],
     "风格": ["photorealistic", "cinematic", "anime style", "oil painting", "comic"],
-    "光照": ["soft lighting", "dramatic lighting", "golden hour", "neon lights"],
     "色彩": ["vibrant colors", "muted tones", "monochromatic", "pastel colors"],
     "细节": ["highly detailed", "minimalist", "intricate", "abstract"],
 }
 
 def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *args):
-    logging.info(f"LLM Type: {llm_type}")
-    logging.info(f"LLM Endpoint: {llm_endpoint}")
-    logging.info(f"LLM Model: {llm_model}")
-    logging.info(f"=== Start Generating Prompt ===")
+    logging.info(f"LLM 类型: {llm_type}")
+    logging.info(f"LLM 端点: {llm_endpoint}")
+    logging.info(f"LLM 模型: {llm_model}")
+    logging.info(f"=== 开始生成提示词 ===")
 
     user_params = {}
     for i, options in enumerate(PARAMETER_TEMPLATES.values()):
@@ -36,17 +35,50 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
             checkbox_value = args[i * 8 + j * 2]
             slider_value = args[i * 8 + j * 2 + 1]
             if checkbox_value and slider_value > 0:
-                user_params[option] = int(slider_value)  # 确保权重为整数
+                user_params[option] = int(slider_value)
 
-    prompt = f"基于以下描述生成一个详细的图像提示词，参考Midjourney的风格：\n\n原始描述：{description}\n\n"
-    prompt += "如果用户的描述只是简单的几个关键词，请加入合理想象，利用给定关键词生成一个完整的场景描述。"
-    prompt += "请生成详细的提示词，不要包含任何额外的参数或权重信息。"
-    prompt += "\n请翻译为英文，并且仅输出英文提示词。"
+    # 预处理用户输入
+    preprocess_prompt = f"""
+    分析以下用户输入的描述:
+    "{description}"
+    
+    判断这是否是一个完整的场景描述语句。如果是，请进行适当的细节扩充；否则，若只是一些零散的关键词，请基于这些关键词创造一个完整的场景描述语句。
+    
+    输出格式:
+    完整性: [完整/不完整]
+    处理后的描述: [你的处理结果]
+    """
 
+    # 调用LLM进行预处理
+    preprocessed_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
+
+    # 解析预处理结果
+    completeness, processed_description = parse_preprocessed_result(preprocessed_description)
+
+    # 生成最终的提示词
+    prompt = f"""
+    基于以下描述生成一个详细的图像提示词，参考Midjourney的风格：
+
+    原始描述：{description}
+    处理后的描述：{processed_description}
+
+    请生成详细的提示词，不要包含任何额外的参数或权重信息。
+    请翻译为英文，并且仅输出英文提示词。
+    """
+
+    generated_prompt = call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt)
+
+    # 在生成的提示词后面添加参数和权重
+    for param, weight in user_params.items():
+        param_formatted = param.lower().replace(" ", "_")
+        generated_prompt += f" {param_formatted}::{weight}，"
+
+    logging.info(f"成功生成提示词: {generated_prompt[:50]}...")
+    return generated_prompt
+
+def call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt):
     if llm_type == 'openai':
-        # llm_endpoint = config.OPENAI_ENDPOINT
         client = OpenAI(api_key=api_key, base_url=llm_endpoint)
-        
         try:
             response = client.chat.completions.create(
                 model=llm_model,
@@ -55,42 +87,41 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
                     {"role": "user", "content": prompt}
                 ]
             )
-            generated_prompt = response.choices[0].message.content.strip()
+            return response.choices[0].message.content.strip()
         except Exception as e:
             logging.error(f"API 调用错误：{e}")
-            return f"生成提示词时发生错误：{e}\n\n原始描述：{description}"
+            return f"生成提示词时发生错误：{e}"
     
     elif llm_type == 'ollama':
-        # llm_endpoint = config.OLLAMA_ENDPOINT
         client = OpenAI(api_key='ollama', base_url=llm_endpoint)
         try:
-            full_url = llm_endpoint
-            logging.info(f"Calling Ollama API at: {full_url}")
             response = client.chat.completions.create(
-                # 这里后面需要改一下，用变量来判断
-                model="llama3.1",
+                model=llm_model,
                 messages=[
                     {"role": "system", "content": "你是一个专业的图像提示词生成助手，擅长创建详细、富有创意的图像描述。"},
                     {"role": "user", "content": prompt}
                 ]
             )
-            generated_prompt = response.choices[0].message.content.strip()
-            logging.info(f"Ollama API 调用成功：{generated_prompt}")
-
+            return response.choices[0].message.content.strip()
         except Exception as e:
             logging.error(f"Ollama API 调用错误：{e}")
-            return f"生成提示词时发生错误：{e}\n\n原始描述：{description}"
+            return f"生成提示词时发生错误：{e}"
     
     else:
         return f"不支持的 LLM 类型：{llm_type}"
 
-    # 在生成的提示词后面添加参数和权重，只包含权重不为 0 的参数
-    for param, weight in user_params.items():
-        param_formatted = param.lower().replace(" ", "_")
-        generated_prompt += f" {param_formatted}::{weight}，"
-
-    logging.info(f"成功生成提示词: {generated_prompt[:50]}...")
-    return generated_prompt
+def parse_preprocessed_result(result):
+    lines = result.split('\n')
+    completeness = "不完整"
+    processed_description = ""
+    
+    for line in lines:
+        if line.startswith("完整性:"):
+            completeness = line.split(":")[1].strip()
+        elif line.startswith("处理后的描述:"):
+            processed_description = line.split(":")[1].strip()
+    
+    return completeness, processed_description
 
 def generate_image(prompt, workflow_name):
     try:
