@@ -38,47 +38,36 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
             if checkbox_value and slider_value > 0:
                 user_params[option] = int(slider_value)
 
-    # 预处理用户输入
-    preprocess_prompt = f"""
-    Analyse the following image description written in Chinese:
-    "{description}"
+    max_attempts = config.MAX_ATTEMPTS
+    for attempt in range(max_attempts):
+        preprocess_prompt = f"""
+        Analyse the following image description written in Chinese:
+        "{description}"
+        
+        1. Translate the description into English.
+        2. Determine if it is a complete scene description or just some scattered keywords: 
+            - If it is a complete scene description, expand it with appropriate details.
+            - Otherwise, generate a more detailed description based on the given keywords and create a complete scene description.
+        
+        3. Only generate final description of the scene as your output. The entire description should be quoted between '<<' and '>>'.
+        """
+
+        generated_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
+        logging.info(f"生成的描述： {generated_description}")
+
+        processed_description = extract_content(generated_description, '<<', '>>')
+        logging.info(f"清洗后的描述： {processed_description}")
+
+        if processed_description:
+            generated_prompt = processed_description
+            break
+        else:
+            logging.warning(f"尝试 {attempt + 1}/{max_attempts}: 无法从预处理结果中提取出完整的描述！正在重新尝试生成。")
+            # TODO: 需要返回原始的关键词作为答案
     
-    1. Translate the description into English.
-    2. Determine if it is a complete scene description or just some scattered keywords: 
-        - If it is a complete scene description, expand it with appropriate details.
-        - Otherwise, generate a more detailed description based on the given keywords and create a complete scene description.
-    
-    3. Only generate final description of the scene as your output and it should be formatted like this: <<final description>>
-    """
-
-    # 调用LLM进行预处理
-    # preprocessed_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
-    generated_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
-    logging.info(f"生成的描述： {generated_description}")
-
-    # 解析处理结果
-    # completeness, processed_description = parse_preprocessed_result(preprocessed_description)
-    processed_description = extract_content(generated_description, '<<', '>>')
-    logging.info(f"清洗后的描述： {processed_description}")
-    if processed_description == "":
-        logging.warning("无法从预处理结果中提取出完整的描述！请重新尝试生成。")
-        generated_prompt = "无法从预处理结果中提取出完整的描述！请重新尝试生成。"
-    else:
-        generated_prompt = processed_description
-    # logging.info(f"Completeness: {completeness}")
-
-    # # 生成最终的提示词
-    # prompt = f"""
-    # 基于以下描述生成一个详细的图像提示词，参考Midjourney的风格：
-
-    # 原始描述：{description}
-    # 处理后的描述：{processed_description}
-
-    # 请生成详细的提示词，不要包含任何额外的参数或权重信息。
-    # 请翻译为英文，并且仅输出英文提示词。
-    # """
-
-    # generated_prompt = call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt)
+    if not processed_description:
+        logging.error("达到最大尝试次数，无法生成有效提示词。")
+        return "无法生成有效提示词，请重新尝试或修改输入。"
 
     # 在生成的提示词后面添加参数和权重
     for param, weight in user_params.items():
@@ -297,7 +286,7 @@ def create_interface():
 
                 with gr.Row():
                     workflows = comfyui_api.list_workflows()
-                    workflow_dropdown = gr.Dropdown(choices=workflows, label="选择工作流")
+                    workflow_dropdown = gr.Dropdown(choices=workflows, label="选择工��流")
                     generate_image_button = gr.Button("生成图像")
                 
                 excel_file = gr.File(label="上传Excel文件(可选)")

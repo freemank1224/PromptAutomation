@@ -22,7 +22,8 @@ class Config:
             'OPENAI_ENDPOINT': 'https://tbnx.plus7.plus/v1',
             'OPENAI_MODEL': 'gpt-3.5-turbo',
             'OLLAMA_MODEL': 'llama3.1',
-            'OLLAMA_ENDPOINT': 'http://localhost:11434'
+            'OLLAMA_ENDPOINT': 'http://localhost:11434',
+            'MAX_ATTEMPTS': 3
         }
 
         # 首先尝试从环境变量加载
@@ -55,7 +56,8 @@ class Config:
             'OPENAI_ENDPOINT': self.OPENAI_ENDPOINT,
             'OPENAI_MODEL': self.OPENAI_MODEL,
             'OLLAMA_MODEL': self.OLLAMA_MODEL,
-            'OLLAMA_ENDPOINT': self.OLLAMA_ENDPOINT
+            'OLLAMA_ENDPOINT': self.OLLAMA_ENDPOINT,
+            'MAX_ATTEMPTS': self.MAX_ATTEMPTS
         }
         with open(self._config_file, 'w') as f:
             json.dump(config_data, f, indent=4)
