@@ -3,6 +3,7 @@ from openai import OpenAI
 import requests
 import logging
 import os
+import re
 from PIL import Image
 from config import config
 from comfyui_api import comfyui_api
@@ -39,34 +40,45 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
 
     # 预处理用户输入
     preprocess_prompt = f"""
-    分析以下用户输入的描述:
+    Analyse the following image description written in Chinese:
     "{description}"
     
-    判断这是否是一个完整的场景描述语句。如果是，请进行适当的细节扩充；否则，若只是一些零散的关键词，请基于这些关键词创造一个完整的场景描述语句。
+    1. Translate the description into English.
+    2. Determine if it is a complete scene description or just some scattered keywords: 
+        - If it is a complete scene description, expand it with appropriate details.
+        - Otherwise, generate a more detailed description based on the given keywords and create a complete scene description.
     
-    输出格式:
-    完整性: [完整/不完整]
-    处理后的描述: [你的处理结果]
+    3. Only generate final description of the scene as your output and it should be formatted like this: <<final description>>
     """
 
     # 调用LLM进行预处理
-    preprocessed_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
+    # preprocessed_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
+    generated_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
+    logging.info(f"生成的描述： {generated_description}")
 
-    # 解析预处理结果
-    completeness, processed_description = parse_preprocessed_result(preprocessed_description)
+    # 解析处理结果
+    # completeness, processed_description = parse_preprocessed_result(preprocessed_description)
+    processed_description = extract_content(generated_description, '<<', '>>')
+    logging.info(f"清洗后的描述： {processed_description}")
+    if processed_description == "":
+        logging.warning("无法从预处理结果中提取出完整的描述！请重新尝试生成。")
+        generated_prompt = "无法从预处理结果中提取出完整的描述！请重新尝试生成。"
+    else:
+        generated_prompt = processed_description
+    # logging.info(f"Completeness: {completeness}")
 
-    # 生成最终的提示词
-    prompt = f"""
-    基于以下描述生成一个详细的图像提示词，参考Midjourney的风格：
+    # # 生成最终的提示词
+    # prompt = f"""
+    # 基于以下描述生成一个详细的图像提示词，参考Midjourney的风格：
 
-    原始描述：{description}
-    处理后的描述：{processed_description}
+    # 原始描述：{description}
+    # 处理后的描述：{processed_description}
 
-    请生成详细的提示词，不要包含任何额外的参数或权重信息。
-    请翻译为英文，并且仅输出英文提示词。
-    """
+    # 请生成详细的提示词，不要包含任何额外的参数或权重信息。
+    # 请翻译为英文，并且仅输出英文提示词。
+    # """
 
-    generated_prompt = call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt)
+    # generated_prompt = call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt)
 
     # 在生成的提示词后面添加参数和权重
     for param, weight in user_params.items():
@@ -76,6 +88,27 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
     logging.info(f"成功生成提示词: {generated_prompt[:50]}...")
     return generated_prompt
 
+# def extract_content(text, start_symbol, end_symbol):
+#     try:
+#         start_index = text.find(start_symbol)
+#         if start_index != -1:
+#             start_index += len(start_symbol)
+#             end_index = text.rfind(end_symbol, start_index)
+#             if end_index != -1:
+#                 content = text[start_index:end_index]
+#                 return content
+#             else:
+#                 raise ValueError(f"无法找到结束符号 {end_symbol}")
+#         else:
+#             raise ValueError(f"无法找到起始符号 {start_symbol}")
+#     except ValueError as e:
+#         logging.error(f"提取内容失败: {e}")
+
+def extract_content(text, start_symbol, end_symbol):
+    pattern = re.escape(start_symbol) + '(.*?)' + re.escape(end_symbol)
+    matches = re.findall(pattern, text)
+    return matches[0] if matches else ""
+
 def call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt):
     if llm_type == 'openai':
         client = OpenAI(api_key=api_key, base_url=llm_endpoint)
@@ -83,7 +116,7 @@ def call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt):
             response = client.chat.completions.create(
                 model=llm_model,
                 messages=[
-                    {"role": "system", "content": "你是一个专业的图像提示词生成助手，擅长创建详细、富有创意的图像描述。"},
+                    {"role": "system", "content": "You're a professional image prompt generation assistant, skilled in creating detailed and imaginative image descriptions."},
                     {"role": "user", "content": prompt}
                 ]
             )
@@ -98,7 +131,7 @@ def call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt):
             response = client.chat.completions.create(
                 model=llm_model,
                 messages=[
-                    {"role": "system", "content": "你是一个专业的图像提示词生成助手，擅长创建详细、富有创意的图像描述。"},
+                    {"role": "system", "content": "You're a professional image prompt generation assistant, skilled in creating detailed and imaginative image descriptions."},
                     {"role": "user", "content": prompt}
                 ]
             )
@@ -112,11 +145,11 @@ def call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt):
 
 def parse_preprocessed_result(result):
     lines = result.split('\n')
-    completeness = "不完整"
+    completeness = "Incomplete"
     processed_description = ""
     
     for line in lines:
-        if line.startswith("完整性:"):
+        if line.startswith("Integraty"):
             completeness = line.split(":")[1].strip()
         elif line.startswith("处理后的描述:"):
             processed_description = line.split(":")[1].strip()
@@ -238,7 +271,7 @@ def create_interface():
                         interactive=True
                     )                   
                     openai_model = gr.Dropdown(
-                        choices=["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4o-mini"],
+                        choices=["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
                         label="OpenAI 模型",
                         value=config.OPENAI_MODEL,
                         interactive=True
