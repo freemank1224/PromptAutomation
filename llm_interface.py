@@ -99,35 +99,39 @@ def generate_prompt_without_optimization(api_key, description, llm_type, llm_end
             if checkbox_value and slider_value > 0:
                 user_params[option] = int(slider_value)
 
-    preprocess_prompt = f"""
-    Analyse the following image description written in Chinese:
-    "{description}"
-    
-    1. Translate the description into English.
-    2. Determine if it is a complete scene description or just some scattered keywords: 
-        - If it is a complete scene description, expand it with appropriate details.
-        - Otherwise, generate a more detailed description based on the given keywords and create a complete scene description.
-    
-    3. Only generate final description of the scene as your output. The entire description should be quoted between '<<' and '>>'.
-    """
+    max_attempts = config.MAX_ATTEMPTS
+    for attempt in range(max_attempts):
+        preprocess_prompt = f"""
+        Analyse the following image description written in Chinese:
+        "{description}"
+        
+        1. Translate the description into English.
+        2. Determine if it is a complete scene description or just some scattered keywords: 
+            - If it is a complete scene description, expand it with appropriate details.
+            - Otherwise, generate a more detailed description based on the given keywords and create a complete scene description.
+        
+        3. Only generate final description of the scene as your output. The entire description should be quoted between '<<' and '>>'.
+        """
 
-    generated_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
-    logging.info(f"生成的描述： {generated_description}")
+        generated_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
+        logging.info(f"生成的描述： {generated_description}")
 
-    processed_description = extract_content(generated_description, '<<', '>>')
-    logging.info(f"清洗后的描述： {processed_description}")
+        processed_description = extract_content(generated_description, '<<', '>>')
+        logging.info(f"清洗后的描述： {processed_description}")
 
-    if not processed_description:
-        logging.error("无法生成有效提示词，返回原始关键词作为答案")
-        return "无法生成有效提示词，返回原始关键词，请再次尝试生成或更换关键词！"
+        if processed_description:
+            # 在生成的提示词后面添加参数和权重
+            for param, weight in user_params.items():
+                param_formatted = param.lower().replace(" ", "_")
+                processed_description += f" {param_formatted}::{weight}，"
 
-    # 在生成的提示词后面添加参数和权重
-    for param, weight in user_params.items():
-        param_formatted = param.lower().replace(" ", "_")
-        processed_description += f" {param_formatted}::{weight}，"
+            logging.info(f"成功生成提示词: {processed_description[:50]}...")
+            return processed_description
+        else:
+            logging.warning(f"尝试 {attempt + 1}/{max_attempts}: 无法生成有效提示词，正在重新尝试。")
 
-    logging.info(f"成功生成提示词: {processed_description[:50]}...")
-    return processed_description
+    logging.error("达到最大尝试次数，无法生成有效提示词，返回原始描述")
+    return description
 
 def generate_prompt_with_optimization(api_key, description, llm_type, llm_endpoint, llm_model, scene_type, *args):
     logging.info(f"LLM 类型: {llm_type}")
@@ -136,17 +140,26 @@ def generate_prompt_with_optimization(api_key, description, llm_type, llm_endpoi
     logging.info(f"场景类型: {scene_type}")
     logging.info(f"=== 开始生成提示词（使用优化） ===")
 
-    # 首先生成基础提示词
-    base_prompt = generate_prompt_without_optimization(api_key, description, llm_type, llm_endpoint, llm_model, *args)
-    
-    if base_prompt.startswith("无法生成有效提示词"):
-        return base_prompt
+    max_attempts = config.MAX_ATTEMPTS
+    for attempt in range(max_attempts):
+        # 首先生成基础提示词
+        base_prompt = generate_prompt_without_optimization(api_key, description, llm_type, llm_endpoint, llm_model, *args)
+        
+        if base_prompt == description:
+            logging.warning(f"尝试 {attempt + 1}/{max_attempts}: 基础提示词生成失败，正在重新尝试。")
+            continue
 
-    # 使用模板增强生成的提示词
-    enhanced_prompt = enhance_prompt_with_template(api_key, llm_type, llm_endpoint, llm_model, scene_type, description, base_prompt, base_prompt)
+        # 使用模板增强生成的提示词
+        enhanced_prompt = enhance_prompt_with_template(api_key, llm_type, llm_endpoint, llm_model, scene_type, description, base_prompt, base_prompt)
 
-    logging.info(f"成功生成增强的提示词: {enhanced_prompt[:50]}...")
-    return enhanced_prompt
+        if enhanced_prompt:
+            logging.info(f"成功生成增强的提示词: {enhanced_prompt[:50]}...")
+            return enhanced_prompt
+        else:
+            logging.warning(f"尝试 {attempt + 1}/{max_attempts}: 增强提示词失败，正在重新尝试。")
+
+    logging.error("达到最大尝试次数，无法生成有效的增强提示词，返回原始描述")
+    return description
 
 def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, use_optimization, scene_type, *args):
     if use_optimization:
