@@ -12,6 +12,8 @@ import openpyxl
 from openpyxl.drawing.image import Image as XLImage
 from io import BytesIO
 from tqdm import tqdm
+import json
+import random
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -24,10 +26,70 @@ PARAMETER_TEMPLATES = {
     "细节": ["highly detailed", "minimalist", "intricate", "abstract"],
 }
 
-def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *args):
+# 场景类型列表
+SCENE_TYPES = [
+    "自然风景", "人物特写", "人物中景", "人物远景", "城市风景",
+    "魔幻场景", "科幻场景", "平面设计", "LOGO", "产品海报"
+]
+
+def load_prompt_templates(file_path='prompt_templates.json'):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return json.load(file)
+
+def analyze_prompt_templates(api_key, llm_type, llm_endpoint, llm_model):
+    templates = load_prompt_templates()
+    analysis_results = {}
+
+    for scene_type, prompts in templates.items():
+        prompt = f"""Analyze the following prompts for {scene_type} scenes:
+
+{json.dumps(prompts, indent=2)}
+
+Summarize the key characteristics and patterns in these prompts. Focus on:
+1. Common themes and elements
+2. Structure and flow of the descriptions
+3. Use of specific language or terminology
+4. Techniques for creating vivid imagery
+
+Provide a concise summary that can be used as a guide for generating similar high-quality prompts."""
+
+        response = call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt)
+        analysis_results[scene_type] = response
+
+    return analysis_results
+
+def enhance_prompt_with_template(api_key, llm_type, llm_endpoint, llm_model, scene_type, keyword, description, generated_prompt):
+    templates = load_prompt_templates()
+    example_prompts = templates.get(scene_type, [])
+    
+    if not example_prompts:
+        return generated_prompt
+
+    prompt = f"""Given the following information:
+1. Scene type: {scene_type}
+2. Keyword: {keyword}
+3. Description: {description}
+4. Initially generated prompt: {generated_prompt}
+
+And these example prompts for {scene_type}:
+{json.dumps(example_prompts, indent=2)}
+
+Please enhance the initially generated prompt by incorporating elements and styles from the example prompts. The enhanced prompt should:
+1. Maintain the core idea from the original keyword and description
+2. Adopt the structure and flow similar to the example prompts
+3. Include vivid and specific details that are characteristic of {scene_type} scenes
+4. Use language and terminology that creates a strong visual image
+
+Provide only the enhanced prompt as your response, without any additional explanations."""
+
+    enhanced_prompt = call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt)
+    return enhanced_prompt.strip()
+
+def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, scene_type, *args):
     logging.info(f"LLM 类型: {llm_type}")
     logging.info(f"LLM 端点: {llm_endpoint}")
     logging.info(f"LLM 模型: {llm_model}")
+    logging.info(f"场景类型: {scene_type}")
     logging.info(f"=== 开始生成提示词 ===")
 
     user_params = {}
@@ -41,13 +103,13 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
     max_attempts = config.MAX_ATTEMPTS
     for attempt in range(max_attempts):
         preprocess_prompt = f"""
-        Analyse the following image description written in Chinese:
+        Analyse the following image description for a {scene_type} scene, written in Chinese:
         "{description}"
         
         1. Translate the description into English.
         2. Determine if it is a complete scene description or just some scattered keywords: 
-            - If it is a complete scene description, expand it with appropriate details.
-            - Otherwise, generate a more detailed description based on the given keywords and create a complete scene description.
+            - If it is a complete scene description, expand it with appropriate details for a {scene_type} scene.
+            - Otherwise, generate a more detailed description based on the given keywords and create a complete {scene_type} scene description.
         
         3. Only generate final description of the scene as your output. The entire description should be quoted between '<<' and '>>'.
         """
@@ -63,20 +125,21 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
             break
         else:
             logging.warning(f"尝试 {attempt + 1}/{max_attempts}: 无法从预处理结果中提取出完整的描述！正在重新尝试生成。")
-            # TODO: 需要返回原始的关键词作为答案
     
     if not processed_description:
         logging.error("达到最大尝试次数，无法生成有效提示词，返回原始关键词作为答案")
-        generated_prompt = description
         return "无法生成有效提示词，返回原始关键词，请再次尝试生成或更换关键词！"
 
-    # 在生成的提示词后面添加参数和权重
+    # 使用模板增强生成的提示词
+    enhanced_prompt = enhance_prompt_with_template(api_key, llm_type, llm_endpoint, llm_model, scene_type, description, processed_description, generated_prompt)
+
+    # 在增强的提示词后面添加参数和权重
     for param, weight in user_params.items():
         param_formatted = param.lower().replace(" ", "_")
-        generated_prompt += f" {param_formatted}::{weight}，"
+        enhanced_prompt += f" {param_formatted}::{weight}，"
 
-    logging.info(f"成功生成提示词: {generated_prompt[:50]}...")
-    return generated_prompt
+    logging.info(f"成功生成增强的提示词: {enhanced_prompt[:50]}...")
+    return enhanced_prompt
 
 # def extract_content(text, start_symbol, end_symbol):
 #     try:
@@ -165,7 +228,7 @@ def generate_image(prompt, workflow_name):
         logging.error(f"图像生成错误: {e}")
         return None
 
-def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflow_name, progress=gr.Progress(), *args):
+def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflow_name, scene_type, progress=gr.Progress(), *args):
     try:
         logging.info(f"处理Excel文件: {file_path}")
         df = pd.read_excel(file_path)
@@ -185,7 +248,7 @@ def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflo
         progress(0, desc="开始生成提示词")
         prompts = []
         for index, keyword in enumerate(df[keyword_column]):
-            prompt = generate_prompt(api_key, keyword, llm_type, llm_endpoint, llm_model, *args)
+            prompt = generate_prompt(api_key, keyword, llm_type, llm_endpoint, llm_model, scene_type, *args)
             prompts.append(prompt)
             progress((index + 1) / total_rows / 2, desc=f"生成提示词进度: {index+1}/{total_rows}")
         
@@ -248,8 +311,6 @@ def create_interface():
                 save_api_key = gr.Checkbox(label="保存 API 密钥")
                 
                 llm_type = gr.Dropdown(choices=["openai", "ollama"], label="LLM 类型", value=config.LLM_TYPE)
-                logging.info(f"LLM Type: {llm_type.value}")
-                logging.info('----------------')
                 
                 # OpenAI 设置
                 with gr.Group(visible=llm_type.value == "openai") as openai_group:
@@ -266,8 +327,6 @@ def create_interface():
                         value=config.OPENAI_MODEL,
                         interactive=True
                     )
-                    logging.info(f"OpenAI Endpoint: {openai_endpoint.value}")
-                    logging.info(f"OpenAI Model: {openai_model.value}")
                 
                 # Ollama 设置
                 with gr.Group(visible=llm_type.value == "ollama") as ollama_group:
@@ -278,20 +337,20 @@ def create_interface():
                         value=config.OLLAMA_MODEL,
                         interactive=True
                     )
-                    logging.info(f"Ollama Endpoint: {ollama_endpoint.value}")
-                    logging.info(f"Ollama Model: {ollama_model.value}")
 
-                
+                scene_type = gr.Dropdown(choices=SCENE_TYPES, label="场景类型", value=SCENE_TYPES[0])
                 description_input = gr.Textbox(label="请输入图像描述", lines=5)
                 generate_button = gr.Button("生成提示词", variant="primary")
 
                 with gr.Row():
                     workflows = comfyui_api.list_workflows()
-                    workflow_dropdown = gr.Dropdown(choices=workflows, label="选择工��流")
+                    workflow_dropdown = gr.Dropdown(choices=workflows, label="选择工作流")
                     generate_image_button = gr.Button("生成图像")
                 
                 excel_file = gr.File(label="上传Excel文件(可选)")
                 process_excel_button = gr.Button("批量处理Excel")
+                
+                update_templates_button = gr.Button("更新提示词模板分析")
             
             # 右侧栏（用于显示生成的提示词和图像）
             with gr.Column(scale=1):
@@ -324,32 +383,10 @@ def create_interface():
                     with gr.Row():
                         pass  # 创建新的行
 
-
-        # 更新LLM模型设置
-        def update_llm_parameters(llm_type):
-            print("\n==== Current LLM model =====")
-            if llm_type == "openai":
-                llm_model = openai_model
-                llm_endpoint = openai_endpoint
-            
-            if llm_type == "ollama":
-                llm_model = ollama_model
-                llm_endpoint = ollama_endpoint
-            
-            print("========================")
-            return llm_model, llm_endpoint
-            
-            
-
-        # 更新 LLM 设置，根据选择的 LLM 类型显示或隐藏相应的设置
+        # 更新LLM设置
         def update_llm_settings(llm_type):
-            print("\n========================")
-            logging.info(f"Updating LLM settings for: {llm_type}")
-            print("\n========================")
-
             is_openai = llm_type == "openai"
             is_ollama = llm_type == "ollama"
-
             return {
                 openai_group: gr.update(visible=is_openai),
                 ollama_group: gr.update(visible=is_ollama),
@@ -359,37 +396,11 @@ def create_interface():
                 ollama_model: gr.update(visible=is_ollama)
             }
 
-        # 当 LLM 类型改变时，更新 LLM 设置
         llm_type.change(
             update_llm_settings,
             inputs=[llm_type],
             outputs=[openai_group, ollama_group, openai_endpoint, openai_model, ollama_endpoint, ollama_model]
         )
-
-        def get_endpoint(llm_type, openai_endpoint, ollama_endpoint):
-            # logging.info(f"Getting endpoint for LLM type: {llm_type}")
-            # logging.info(f"OpenAI endpoint: {openai_endpoint}")
-            # logging.info(f"Ollama endpoint: {ollama_endpoint}")
-            if llm_type == "openai":
-                logging.info(f"OpenAI endpoint was selected: {openai_endpoint}")
-                return openai_endpoint
-                
-            if llm_type == "ollama": 
-                logging.info(f"Ollama endpoint was selected: {ollama_endpoint}")
-                return ollama_endpoint
-                
-        
-        def get_model(llm_type, openai_model):
-            return openai_model if llm_type == "openai" else "llama2"  # 为 Ollama 返回默认模型
-
-        def export_results(results, file_path, include_thumbnails):
-            if results is None or results.empty or file_path is None:
-                return "没有可导出的结果"
-            output_file = export_results_to_excel(results, file_path, include_thumbnails)
-            if output_file:
-                return f"结果已导出到: {output_file}"
-            else:
-                return "导出失败"
 
         def get_current_llm_params(llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model):
             if llm_type == "openai":
@@ -399,33 +410,25 @@ def create_interface():
             else:
                 raise ValueError(f"Unsupported LLM type: {llm_type}")
 
-        def generate_prompt_wrapper(api_key, description, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, *args):
-            if llm_type == "openai":
-                endpoint, model = openai_endpoint, openai_model
-            elif llm_type == "ollama":
-                endpoint, model = ollama_endpoint, ollama_model
-            else:
-                raise ValueError(f"Unsupported LLM type: {llm_type}")
-            
-            return generate_prompt(api_key, description, llm_type, endpoint, model, *args)
+        def generate_prompt_wrapper(api_key, description, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, scene_type, *args):
+            endpoint, model = get_current_llm_params(llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model)
+            return generate_prompt(api_key, description, llm_type, endpoint, model, scene_type, *args)
 
-        def process_excel_wrapper(file_path, api_key, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, workflow_name, progress=gr.Progress(), *args):
-            logging.info(f"Starting process_excel_wrapper with llm_type: {llm_type}")
-            if llm_type == "openai":
-                endpoint, model = openai_endpoint, openai_model
-            elif llm_type == "ollama":
-                endpoint, model = ollama_endpoint, ollama_model
-            else:
-                raise ValueError(f"Unsupported LLM type: {llm_type}")
-            
-            logging.info(f"Calling process_excel with endpoint: {endpoint}, model: {model}")
+        def process_excel_wrapper(file_path, api_key, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, workflow_name, scene_type, progress=gr.Progress(), *args):
+            endpoint, model = get_current_llm_params(llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model)
             try:
-                result = process_excel(file_path, api_key, llm_type, endpoint, model, workflow_name, progress, *args)
+                result = process_excel(file_path, api_key, llm_type, endpoint, model, workflow_name, scene_type, progress, *args)
                 logging.info("process_excel completed successfully")
                 return result
             except Exception as e:
                 logging.error(f"Error in process_excel: {str(e)}")
                 raise
+
+        def update_templates_analysis(api_key, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model):
+            endpoint, model = get_current_llm_params(llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model)
+            analysis_results = analyze_prompt_templates(api_key, llm_type, endpoint, model)
+            # 这里可以选择将分析结果保存到文件或数据库中
+            return "提示词模板分析已更新"
 
         generate_button.click(
             generate_prompt_wrapper,
@@ -436,7 +439,8 @@ def create_interface():
                 openai_endpoint,
                 openai_model,
                 ollama_endpoint,
-                ollama_model
+                ollama_model,
+                scene_type
             ] + parameter_inputs,
             outputs=output
         )
@@ -457,24 +461,40 @@ def create_interface():
                 openai_model,
                 ollama_endpoint,
                 ollama_model,
-                workflow_dropdown
+                workflow_dropdown,
+                scene_type
             ] + parameter_inputs,
             outputs=[excel_output, process_status]
         )
 
         export_button.click(
-            export_results,
+            export_results_to_excel,
             inputs=[excel_output, excel_file, include_thumbnails],
             outputs=process_status
         )
+
+        update_templates_button.click(
+            update_templates_analysis,
+            inputs=[
+                api_key_input,
+                llm_type,
+                openai_endpoint,
+                openai_model,
+                ollama_endpoint,
+                ollama_model
+            ],
+            outputs=process_status
+        )
+
+        # 添加场景类型选择的必填验证
+        scene_type.change(lambda x: gr.update(variant="primary" if x else "secondary"), inputs=[scene_type], outputs=[generate_button])
 
     return interface
 
 def launch_prompt_generator():
     interface = create_interface()
-    interface.launch(server_name="0.0.0.0", share=False)  # share=True 允许生成一个公共链接，方便远程访问
+    interface.launch(server_name="0.0.0.0", share=False)
 
-# 添加这个部分用于测试和演示
 if __name__ == "__main__":
     print("正在启动提示词生成器界面...")
     launch_prompt_generator()

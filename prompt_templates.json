@@ -1,0 +1,52 @@
+{
+  "自然风景": [
+    "A breathtaking mountain landscape at sunset, with snow-capped peaks reflected in a serene alpine lake. Golden light bathes the scene, creating long shadows and highlighting the rugged terrain.",
+    "A lush tropical beach paradise with crystal-clear turquoise waters lapping at pristine white sand. Swaying palm trees frame the view, while a vibrant coral reef is visible beneath the surface.",
+    "An enchanting autumn forest scene with a winding path through trees ablaze with red, orange, and gold foliage. Sunlight filters through the canopy, creating a magical atmosphere."
+  ],
+  "人物特写": [
+    "A striking close-up portrait of an elderly man with weathered skin and piercing blue eyes. Every wrinkle tells a story, highlighted by dramatic side lighting that emphasizes texture and character.",
+    "An intimate beauty shot of a young woman with freckles and auburn hair. Soft, diffused lighting enhances her natural features, while a hint of a smile plays on her lips.",
+    "A powerful black and white portrait of an athlete, capturing intense determination. Beads of sweat and tensed muscles are accentuated by high-contrast lighting."
+  ],
+  "人物中景": [
+    "A candid shot of a street musician playing guitar, surrounded by a small crowd in a bustling city square. The warm glow of street lamps creates a cozy atmosphere as the sun sets.",
+    "A fashion photograph of a model in an avant-garde outfit, posed dramatically in an abandoned industrial space. Harsh shadows and pops of color create a striking visual contrast.",
+    "A heartwarming scene of a grandparent reading a story to their grandchild in a cozy living room. Soft, warm lighting emphasizes the emotional connection between the two."
+  ],
+  "人物远景": [
+    "A lone hiker standing atop a mountain peak, arms raised in triumph against a backdrop of endless mountain ranges and a dramatic cloudy sky.",
+    "A silhouette of a surfer walking along a beach at sunset, surfboard under arm, with vibrant orange and purple hues painting the sky and reflecting off the water.",
+    "A wide shot of a farmer working in a vast, golden wheat field, with a traditional barn and silos visible in the distance under a big, blue sky with puffy white clouds."
+  ],
+  "城市风景": [
+    "A dynamic cityscape of New York at night, with streaking car lights on the streets below and the illuminated skyscrapers of Manhattan reaching towards the sky.",
+    "A serene view of an old European city's cobblestone street, lined with colorful buildings, cafes with outdoor seating, and flower boxes in the windows.",
+    "A futuristic skyline of Tokyo, showcasing a mix of traditional architecture and ultra-modern skyscrapers, with neon signs and digital billboards creating a cyberpunk atmosphere."
+  ],
+  "魔幻场景": [
+    "A mystical floating island with waterfalls cascading off its edges, suspended in a sky full of colorful nebulae and distant planets.",
+    "An enchanted forest glade where glowing mushrooms and bioluminescent plants create a magical ambiance, with fairy-like creatures flitting between the trees.",
+    "A grand, impossible castle with twisted spires and staircases defying gravity, perched on the edge of a swirling vortex of clouds and magic."
+  ],
+  "科幻场景": [
+    "A massive space station orbiting a ringed gas giant, with sleek shuttles docking and departing against a backdrop of stars and distant galaxies.",
+    "A futuristic megacity with towering arcologies, flying vehicles weaving between buildings, and holographic advertisements projected onto the sides of skyscrapers.",
+    "An alien landscape with bizarre rock formations, multiple moons in the sky, and strange plant life that seems to pulse with bioluminescence."
+  ],
+  "平面设计": [
+    "A minimalist poster design with bold, geometric shapes in a limited color palette, creating a striking visual hierarchy and negative space.",
+    "An intricate mandala-inspired pattern with repeating motifs and a gradient color scheme, suitable for textile or wallpaper design.",
+    "A typographic composition that plays with perspective and 3D effects, integrating text seamlessly with abstract graphical elements."
+  ],
+  "LOGO": [
+    "A clever, minimalist logo for a tech startup, using negative space to create multiple relevant images within a simple shape.",
+    "An elegant, hand-drawn logo for a boutique featuring flowing script and a small, iconic symbol that represents the brand's essence.",
+    "A bold, geometric logo for a sports brand, with dynamic shapes that suggest motion and energy, using a strong color contrast for impact."
+  ],
+  "产品海报": [
+    "A sleek advertisement for a new smartphone, showcasing the device floating in a minimalist environment with key features highlighted by futuristic graphical elements.",
+    "A vibrant and playful poster for an organic juice brand, featuring a collage of fresh fruits in a creative arrangement with bold typography.",
+    "An atmospheric luxury watch advertisement, with the timepiece displayed in stunning detail against a backdrop of cosmic imagery, suggesting precision and timelessness."
+  ]
+}
