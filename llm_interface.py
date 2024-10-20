@@ -85,12 +85,11 @@ Provide only the enhanced prompt as your response, without any additional explan
     enhanced_prompt = call_llm(api_key, llm_type, llm_endpoint, llm_model, prompt)
     return enhanced_prompt.strip()
 
-def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, scene_type, *args):
+def generate_prompt_without_optimization(api_key, description, llm_type, llm_endpoint, llm_model, *args):
     logging.info(f"LLM 类型: {llm_type}")
     logging.info(f"LLM 端点: {llm_endpoint}")
     logging.info(f"LLM 模型: {llm_model}")
-    logging.info(f"场景类型: {scene_type}")
-    logging.info(f"=== 开始生成提示词 ===")
+    logging.info(f"=== 开始生成提示词（无优化） ===")
 
     user_params = {}
     for i, options in enumerate(PARAMETER_TEMPLATES.values()):
@@ -100,46 +99,60 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, sce
             if checkbox_value and slider_value > 0:
                 user_params[option] = int(slider_value)
 
-    max_attempts = config.MAX_ATTEMPTS
-    for attempt in range(max_attempts):
-        preprocess_prompt = f"""
-        Analyse the following image description for a {scene_type} scene, written in Chinese:
-        "{description}"
-        
-        1. Translate the description into English.
-        2. Determine if it is a complete scene description or just some scattered keywords: 
-            - If it is a complete scene description, expand it with appropriate details for a {scene_type} scene.
-            - Otherwise, generate a more detailed description based on the given keywords and create a complete {scene_type} scene description.
-        
-        3. Only generate final description of the scene as your output. The entire description should be quoted between '<<' and '>>'.
-        """
-
-        generated_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
-        logging.info(f"生成的描述： {generated_description}")
-
-        processed_description = extract_content(generated_description, '<<', '>>')
-        logging.info(f"清洗后的描述： {processed_description}")
-
-        if processed_description:
-            generated_prompt = processed_description
-            break
-        else:
-            logging.warning(f"尝试 {attempt + 1}/{max_attempts}: 无法从预处理结果中提取出完整的描述！正在重新尝试生成。")
+    preprocess_prompt = f"""
+    Analyse the following image description written in Chinese:
+    "{description}"
     
+    1. Translate the description into English.
+    2. Determine if it is a complete scene description or just some scattered keywords: 
+        - If it is a complete scene description, expand it with appropriate details.
+        - Otherwise, generate a more detailed description based on the given keywords and create a complete scene description.
+    
+    3. Only generate final description of the scene as your output. The entire description should be quoted between '<<' and '>>'.
+    """
+
+    generated_description = call_llm(api_key, llm_type, llm_endpoint, llm_model, preprocess_prompt)
+    logging.info(f"生成的描述： {generated_description}")
+
+    processed_description = extract_content(generated_description, '<<', '>>')
+    logging.info(f"清洗后的描述： {processed_description}")
+
     if not processed_description:
-        logging.error("达到最大尝试次数，无法生成有效提示词，返回原始关键词作为答案")
+        logging.error("无法生成有效提示词，返回原始关键词作为答案")
         return "无法生成有效提示词，返回原始关键词，请再次尝试生成或更换关键词！"
 
-    # 使用模板增强生成的提示词
-    enhanced_prompt = enhance_prompt_with_template(api_key, llm_type, llm_endpoint, llm_model, scene_type, description, processed_description, generated_prompt)
-
-    # 在增强的提示词后面添加参数和权重
+    # 在生成的提示词后面添加参数和权重
     for param, weight in user_params.items():
         param_formatted = param.lower().replace(" ", "_")
-        enhanced_prompt += f" {param_formatted}::{weight}，"
+        processed_description += f" {param_formatted}::{weight}，"
+
+    logging.info(f"成功生成提示词: {processed_description[:50]}...")
+    return processed_description
+
+def generate_prompt_with_optimization(api_key, description, llm_type, llm_endpoint, llm_model, scene_type, *args):
+    logging.info(f"LLM 类型: {llm_type}")
+    logging.info(f"LLM 端点: {llm_endpoint}")
+    logging.info(f"LLM 模型: {llm_model}")
+    logging.info(f"场景类型: {scene_type}")
+    logging.info(f"=== 开始生成提示词（使用优化） ===")
+
+    # 首先生成基础提示词
+    base_prompt = generate_prompt_without_optimization(api_key, description, llm_type, llm_endpoint, llm_model, *args)
+    
+    if base_prompt.startswith("无法生成有效提示词"):
+        return base_prompt
+
+    # 使用模板增强生成的提示词
+    enhanced_prompt = enhance_prompt_with_template(api_key, llm_type, llm_endpoint, llm_model, scene_type, description, base_prompt, base_prompt)
 
     logging.info(f"成功生成增强的提示词: {enhanced_prompt[:50]}...")
     return enhanced_prompt
+
+def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, use_optimization, scene_type, *args):
+    if use_optimization:
+        return generate_prompt_with_optimization(api_key, description, llm_type, llm_endpoint, llm_model, scene_type, *args)
+    else:
+        return generate_prompt_without_optimization(api_key, description, llm_type, llm_endpoint, llm_model, *args)
 
 # def extract_content(text, start_symbol, end_symbol):
 #     try:
@@ -338,8 +351,14 @@ def create_interface():
                         interactive=True
                     )
 
-                scene_type = gr.Dropdown(choices=SCENE_TYPES, label="场景类型", value=SCENE_TYPES[0])
                 description_input = gr.Textbox(label="请输入图像描述", lines=5)
+                
+                with gr.Row():
+                    use_prompt_optimization = gr.Checkbox(label="使用提示词优化", value=True)
+                    scene_type = gr.Dropdown(choices=SCENE_TYPES, label="场景类型", value=SCENE_TYPES[0])
+                
+                update_templates_button = gr.Button("更新提示词模板分析")
+                
                 generate_button = gr.Button("生成提示词", variant="primary")
 
                 with gr.Row():
@@ -350,7 +369,12 @@ def create_interface():
                 excel_file = gr.File(label="上传Excel文件(可选)")
                 process_excel_button = gr.Button("批量处理Excel")
                 
-                update_templates_button = gr.Button("更新提示词模板分析")
+                excel_output = gr.Dataframe(
+                    headers=["关键词", "生成的提示词", "图片路径"],
+                    label="Excel处理结果"
+                )
+                include_thumbnails = gr.Checkbox(label="在Excel中包含缩略图", value=True)
+                export_button = gr.Button("导出结果")
             
             # 右侧栏（用于显示生成的提示词和图像）
             with gr.Column(scale=1):
@@ -360,12 +384,7 @@ def create_interface():
                 with gr.Row():
                     output_image = gr.Image(label="生成的图像", type="pil")
                 
-                excel_output = gr.Dataframe(
-                    headers=["关键词", "生成的提示词", "图片路径"],
-                    label="Excel处理结果"
-                )
-                include_thumbnails = gr.Checkbox(label="在Excel中包含缩略图", value=True)
-                export_button = gr.Button("导出结果")
+                # 将处理状态移到这里
                 process_status = gr.Textbox(label="处理状态")
 
         # 下方参数选择区域（分为三列）
@@ -410,9 +429,9 @@ def create_interface():
             else:
                 raise ValueError(f"Unsupported LLM type: {llm_type}")
 
-        def generate_prompt_wrapper(api_key, description, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, scene_type, *args):
+        def generate_prompt_wrapper(api_key, description, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, use_optimization, scene_type, *args):
             endpoint, model = get_current_llm_params(llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model)
-            return generate_prompt(api_key, description, llm_type, endpoint, model, scene_type, *args)
+            return generate_prompt(api_key, description, llm_type, endpoint, model, use_optimization, scene_type, *args)
 
         def process_excel_wrapper(file_path, api_key, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, workflow_name, scene_type, progress=gr.Progress(), *args):
             endpoint, model = get_current_llm_params(llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model)
@@ -440,6 +459,7 @@ def create_interface():
                 openai_model,
                 ollama_endpoint,
                 ollama_model,
+                use_prompt_optimization,
                 scene_type
             ] + parameter_inputs,
             outputs=output
@@ -498,3 +518,4 @@ def launch_prompt_generator():
 if __name__ == "__main__":
     print("正在启动提示词生成器界面...")
     launch_prompt_generator()
+
