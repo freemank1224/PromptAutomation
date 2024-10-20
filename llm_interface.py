@@ -14,9 +14,25 @@ from io import BytesIO
 from tqdm import tqdm
 import json
 import random
+import queue
+import threading
+import html
+import time
+import gc
+
+# 创建一个队列来存储日志消息
+log_queue = queue.Queue()
+
+class GradioHandler(logging.Handler):
+    def emit(self, record):
+        log_entry = self.format(record)
+        log_queue.put(log_entry)
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+gradio_handler = GradioHandler()
+gradio_handler.setLevel(logging.INFO)
+logging.getLogger().addHandler(gradio_handler)
 
 # 预定义的参数模板
 PARAMETER_TEMPLATES = {
@@ -91,14 +107,6 @@ def generate_prompt_without_optimization(api_key, description, llm_type, llm_end
     logging.info(f"LLM 模型: {llm_model}")
     logging.info(f"=== 开始生成提示词（无优化） ===")
 
-    user_params = {}
-    for i, options in enumerate(PARAMETER_TEMPLATES.values()):
-        for j, option in enumerate(options):
-            checkbox_value = args[i * 8 + j * 2]
-            slider_value = args[i * 8 + j * 2 + 1]
-            if checkbox_value and slider_value > 0:
-                user_params[option] = int(slider_value)
-
     max_attempts = config.MAX_ATTEMPTS
     for attempt in range(max_attempts):
         preprocess_prompt = f"""
@@ -120,11 +128,6 @@ def generate_prompt_without_optimization(api_key, description, llm_type, llm_end
         logging.info(f"清洗后的描述： {processed_description}")
 
         if processed_description:
-            # 在生成的提示词后面添加参数和权重
-            for param, weight in user_params.items():
-                param_formatted = param.lower().replace(" ", "_")
-                processed_description += f" {param_formatted}::{weight}，"
-
             logging.info(f"成功生成提示词: {processed_description[:50]}...")
             return processed_description
         else:
@@ -158,14 +161,34 @@ def generate_prompt_with_optimization(api_key, description, llm_type, llm_endpoi
         else:
             logging.warning(f"尝试 {attempt + 1}/{max_attempts}: 增强提示词失败，正在重新尝试。")
 
-    logging.error("达到最大尝试次数，无法生成有效的增强提示词，返回原始描述")
+    logging.error("达到最大尝试次数，无法生成有效的增强提示词，返回原始述")
     return description
 
 def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, use_optimization, scene_type, *args):
     if use_optimization:
-        return generate_prompt_with_optimization(api_key, description, llm_type, llm_endpoint, llm_model, scene_type, *args)
+        prompt = generate_prompt_with_optimization(api_key, description, llm_type, llm_endpoint, llm_model, scene_type, *args)
     else:
-        return generate_prompt_without_optimization(api_key, description, llm_type, llm_endpoint, llm_model, *args)
+        prompt = generate_prompt_without_optimization(api_key, description, llm_type, llm_endpoint, llm_model, *args)
+    
+    # 添加用户选择的参数和权重
+    user_params = {}
+    for i, options in enumerate(PARAMETER_TEMPLATES.values()):
+        for j, option in enumerate(options):
+            checkbox_value = args[i * 8 + j * 2]
+            slider_value = args[i * 8 + j * 2 + 1]
+            if checkbox_value and slider_value > 0:
+                user_params[option] = int(slider_value)
+    
+    # 将参数附加到提示词后面
+    for param, weight in user_params.items():
+        param_formatted = param.lower().replace(" ", "_")
+        prompt += f" {param_formatted}::{weight},"
+    
+    # 移除最后一个逗号（如果存在）
+    prompt = prompt.rstrip(',')
+    
+    logging.info(f"最终生成的提示词（包含参数）: {prompt}")
+    return prompt
 
 # def extract_content(text, start_symbol, end_symbol):
 #     try:
@@ -179,7 +202,7 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, use
 #             else:
 #                 raise ValueError(f"无法找到结束符号 {end_symbol}")
 #         else:
-#             raise ValueError(f"无法找到起始符号 {start_symbol}")
+#             raise ValueError(f"无法找到起始号 {start_symbol}")
 #     except ValueError as e:
 #         logging.error(f"提取内容失败: {e}")
 
@@ -236,25 +259,40 @@ def parse_preprocessed_result(result):
     return completeness, processed_description
 
 def generate_image(prompt, workflow_name):
-    try:
-        image_filename = comfyui_api.generate_image(prompt, workflow_name)
-        if image_filename:
-            # 构造完整的文件路径
-            image_path = os.path.join(config.OUTPUT_DIR, image_filename)
-            # 检查文件是否存在
-            if os.path.exists(image_path):
-                # 使用 PIL 打开图像并返回
-                return Image.open(image_path)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            logging.info(f"尝试生成图像 (尝试 {attempt + 1}/{max_retries})")
+            logging.info(f"使用提示词: {prompt[:100]}...")  # 只记录前100个字符
+            logging.info(f"使用工作流: {workflow_name}")
+            
+            image_filename = comfyui_api.generate_image(prompt, workflow_name)
+            if image_filename:
+                image_path = os.path.join(config.OUTPUT_DIR, image_filename)
+                if os.path.exists(image_path):
+                    logging.info(f"成功生成图像: {image_path}")
+                    return Image.open(image_path)
+                else:
+                    logging.error(f"生成的图像文件不存在: {image_path}")
             else:
-                logging.error(f"生成的图像文件不存在: {image_path}")
-                return None
-        else:
-            return None
-    except Exception as e:
-        logging.error(f"图像生成错误: {e}")
-        return None
+                logging.error("ComfyUI API 未返回图像文件名")
+            
+            # 如果到达这里，说明当前尝试失败，等待后重试
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 5  # 递增等待时间
+                logging.warning(f"图像生成失败，等待 {wait_time} 秒后重试")
+                time.sleep(wait_time)
+        except requests.exceptions.Timeout:
+            logging.error("图像生成请求超时")
+        except Exception as e:
+            logging.error(f"图像生成错误: {str(e)}")
+        
+        if attempt == max_retries - 1:
+            logging.error("达到最大重试次数，图像生成失败")
+    
+    return None
 
-def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflow_name, scene_type, progress=gr.Progress(), *args):
+def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflow_name, scene_type, use_optimization, progress=gr.Progress(), *args):
     try:
         logging.info(f"处理Excel文件: {file_path}")
         df = pd.read_excel(file_path)
@@ -263,7 +301,6 @@ def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflo
         if keyword_column is None:
             return pd.DataFrame(), "Excel文件中未找到'关键词'或'Keywords'列。"
         
-        # 创建与Excel文件同名的文件夹
         excel_name = os.path.splitext(os.path.basename(file_path))[0]
         output_folder = os.path.join(config.OUTPUT_DIR, excel_name)
         os.makedirs(output_folder, exist_ok=True)
@@ -274,7 +311,7 @@ def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflo
         progress(0, desc="开始生成提示词")
         prompts = []
         for index, keyword in enumerate(df[keyword_column]):
-            prompt = generate_prompt(api_key, keyword, llm_type, llm_endpoint, llm_model, scene_type, *args)
+            prompt = generate_prompt(api_key, keyword, llm_type, llm_endpoint, llm_model, use_optimization, scene_type, *args)
             prompts.append(prompt)
             progress((index + 1) / total_rows / 2, desc=f"生成提示词进度: {index+1}/{total_rows}")
         
@@ -282,21 +319,46 @@ def process_excel(file_path, api_key, llm_type, llm_endpoint, llm_model, workflo
         progress(0.5, desc="开始生成图片")
         results = []
         for index, (keyword, prompt) in enumerate(zip(df[keyword_column], prompts)):
+            logging.info(f"正在处理第 {index+1}/{total_rows} 个图像")
+            
+            # 尝试清理内存
+            gc.collect()
+            
+            # 如果是 CUDA 环境，可以尝试清理 CUDA 缓存
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    logging.info("CUDA 缓存已清理")
+            except ImportError:
+                logging.info("torch 模块不可用，跳过 CUDA 缓存清理")
+            
+            # 暂停一小段时间，给系统一些时间来释放资源
+            time.sleep(2)
+            
             image = generate_image(prompt, workflow_name)
             if image:
                 image_filename = f"{index+1:03d}_{keyword}.png"
                 image_path = os.path.join(output_folder, image_filename)
                 image.save(image_path)
                 results.append((keyword, prompt, image_path))
+                logging.info(f"成功生成并保存图像: {image_path}")
             else:
                 results.append((keyword, prompt, "图像生成失败"))
+                logging.error(f"无法为关键词 '{keyword}' 生成图像")
+            
             progress(0.5 + (index + 1) / total_rows / 2, desc=f"生成图片进度: {index+1}/{total_rows}")
+            
+            # 每处理 5 张图片后，暂停一段时间
+            if (index + 1) % 5 == 0:
+                logging.info("暂停处理，等待资源释放...")
+                time.sleep(5)  # 暂停 5 秒
         
         progress(1.0, desc="处理完成")
         return pd.DataFrame(results, columns=["关键词", "生成的提示词", "图片路径"]), "全部内容已生成"
     except Exception as e:
-        logging.error(f"处理Excel文件时发生错误: {e}")
-        return pd.DataFrame(), f"处理Excel文件时发生错误: {e}"
+        logging.error(f"处理Excel文件时发生错误: {str(e)}")
+        return pd.DataFrame(), f"处理Excel文件时发生错误: {str(e)}"
 
 def export_results_to_excel(results, original_file_path, include_thumbnails):
     try:
@@ -327,7 +389,20 @@ def export_results_to_excel(results, original_file_path, include_thumbnails):
         return None
 
 def create_interface():
-    with gr.Blocks() as interface:
+    # 在函数开始处定义 custom_css
+    custom_css = """
+        .custom-textbox-output textarea {
+            font-family: monospace;
+            white-space: pre;
+            overflow-x: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+    """
+
+    with gr.Blocks(css=custom_css) as interface:
         gr.Markdown("# 提示词生成器和图像生成器")
         
         with gr.Row():
@@ -397,8 +472,13 @@ def create_interface():
                 with gr.Row():
                     output_image = gr.Image(label="生成的图像", type="pil")
                 
-                # 将处理状态移到这里
-                process_status = gr.Textbox(label="处理状态")
+                # 修改这里：添加样式和滚动条
+                process_status = gr.Textbox(
+                    label="当前处理状态",
+                    lines=10,
+                    max_lines=20,
+                    elem_classes="custom-textbox-output"
+                )
 
         # 下方参数选择区域（分为三列）
         with gr.Row():
@@ -446,10 +526,10 @@ def create_interface():
             endpoint, model = get_current_llm_params(llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model)
             return generate_prompt(api_key, description, llm_type, endpoint, model, use_optimization, scene_type, *args)
 
-        def process_excel_wrapper(file_path, api_key, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, workflow_name, scene_type, progress=gr.Progress(), *args):
+        def process_excel_wrapper(file_path, api_key, llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model, workflow_name, scene_type, use_optimization, progress=gr.Progress(), *args):
             endpoint, model = get_current_llm_params(llm_type, openai_endpoint, openai_model, ollama_endpoint, ollama_model)
             try:
-                result = process_excel(file_path, api_key, llm_type, endpoint, model, workflow_name, scene_type, progress, *args)
+                result = process_excel(file_path, api_key, llm_type, endpoint, model, workflow_name, scene_type, use_optimization, progress, *args)
                 logging.info("process_excel completed successfully")
                 return result
             except Exception as e:
@@ -495,7 +575,8 @@ def create_interface():
                 ollama_endpoint,
                 ollama_model,
                 workflow_dropdown,
-                scene_type
+                scene_type,
+                use_prompt_optimization
             ] + parameter_inputs,
             outputs=[excel_output, process_status]
         )
@@ -522,10 +603,23 @@ def create_interface():
         # 添加场景类型选择的必填验证
         scene_type.change(lambda x: gr.update(variant="primary" if x else "secondary"), inputs=[scene_type], outputs=[generate_button])
 
+        def update_status():
+            status = ""
+            while True:
+                try:
+                    log_entry = log_queue.get_nowait()
+                    status += log_entry + "\n"
+                except queue.Empty:
+                    break
+            return status
+
+        interface.load(update_status, outputs=[process_status], every=1)
+
     return interface
 
 def launch_prompt_generator():
     interface = create_interface()
+    interface.queue()
     interface.launch(server_name="0.0.0.0", share=False)
 
 if __name__ == "__main__":
