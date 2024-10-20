@@ -66,8 +66,9 @@ def generate_prompt(api_key, description, llm_type, llm_endpoint, llm_model, *ar
             # TODO: 需要返回原始的关键词作为答案
     
     if not processed_description:
-        logging.error("达到最大尝试次数，无法生成有效提示词。")
-        return "无法生成有效提示词，请重新尝试或修改输入。"
+        logging.error("达到最大尝试次数，无法生成有效提示词，返回原始关键词作为答案")
+        generated_prompt = description
+        return "无法生成有效提示词，返回原始关键词，请再次尝试生成或更换关键词！"
 
     # 在生成的提示词后面添加参数和权重
     for param, weight in user_params.items():
